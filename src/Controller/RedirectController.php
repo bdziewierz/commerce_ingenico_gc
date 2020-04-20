@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 /**
  * This is a dummy controller for mocking an off-site gateway.
  */
-class DummyRedirectController implements ContainerInjectionInterface {
+class RedirectController implements ContainerInjectionInterface {
 
   /**
    * The current request.
@@ -20,7 +20,7 @@ class DummyRedirectController implements ContainerInjectionInterface {
   protected $currentRequest;
 
   /**
-   * Constructs a new DummyRedirectController object.
+   * Constructs a new RedirectController object.
    *
    * @param \Symfony\Component\HttpFoundation\RequestStack $request_stack
    *   The request stack.

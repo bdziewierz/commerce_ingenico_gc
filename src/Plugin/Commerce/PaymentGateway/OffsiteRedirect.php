@@ -31,6 +31,9 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
    */
   public function defaultConfiguration() {
     return [
+      'api_key' => '',
+      'api_secret' => '',
+      'integrator' => '',
       'redirect_method' => 'post',
     ] + parent::defaultConfiguration();
   }
@@ -40,6 +43,27 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
    */
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
     $form = parent::buildConfigurationForm($form, $form_state);
+
+    $form['api_key'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('API key'),
+      '#default_value' => $this->configuration['api_key'],
+      '#required' => TRUE,
+    ];
+
+    $form['api_secret'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('API secret'),
+      '#default_value' => $this->configuration['api_secret'],
+      '#required' => TRUE,
+    ];
+
+    $form['integrator'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Integrator'),
+      '#default_value' => $this->configuration['integrator'],
+      '#required' => TRUE,
+    ];
 
     // A real gateway would always know which redirect method should be used,
     // it's made configurable here for test purposes.
@@ -64,6 +88,9 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
     parent::submitConfigurationForm($form, $form_state);
     if (!$form_state->getErrors()) {
       $values = $form_state->getValue($form['#parents']);
+      $this->configuration['api_key'] = $values['api_key'];
+      $this->configuration['api_secret'] = $values['api_secret'];
+      $this->configuration['integrator'] = $values['integrator'];
       $this->configuration['redirect_method'] = $values['redirect_method'];
     }
   }

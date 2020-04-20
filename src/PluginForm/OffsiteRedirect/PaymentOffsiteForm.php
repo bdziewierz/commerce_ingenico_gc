@@ -22,7 +22,7 @@ class PaymentOffsiteForm extends BasePaymentOffsiteForm {
     $redirect_method = $payment_gateway_plugin->getConfiguration()['redirect_method'];
     $remove_js = ($redirect_method == 'post_manual');
     if (in_array($redirect_method, ['post', 'post_manual'])) {
-      $redirect_url = Url::fromRoute('commerce_ingenico_gc.dummy_redirect_post')->toString();
+      $redirect_url = Url::fromRoute('commerce_ingenico_gc.redirect_post')->toString();
       $redirect_method = 'post';
     }
     else {

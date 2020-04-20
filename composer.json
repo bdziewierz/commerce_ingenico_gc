@@ -1,0 +1,12 @@
+{
+  "name": "drupal/commerce_ingenico_gc",
+  "type": "drupal-module",
+  "description": "Provides payment gateway for Ingenico ePayments GlobalConnect",
+  "license": "GPL-2.0+",
+  "require": {
+    "drupal/core": "^8.3",
+    "drupal/commerce": "^2.0",
+    "ingenico-epayments/connect-sdk-php": "~6.8"
+  },
+  "minimum-stability": "dev"
+}
