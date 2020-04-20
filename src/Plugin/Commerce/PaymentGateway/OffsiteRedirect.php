@@ -2,10 +2,13 @@
 
 namespace Drupal\commerce_ingenico_gc\Plugin\Commerce\PaymentGateway;
 
-use Drupal\commerce_order\Entity\OrderInterface;
-use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayBase;
 use Drupal\Core\Form\FormStateInterface;
 use Symfony\Component\HttpFoundation\Request;
+use Drupal\commerce_order\Entity\OrderInterface;
+use Drupal\commerce_payment\Exception\DeclineException;
+use Drupal\commerce_payment\Exception\PaymentGatewayException;
+use Drupal\commerce_payment\Exception\InvalidResponseException;
+use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayBase;
 
 /**
  * Provides the Off-site Redirect payment gateway.
@@ -34,7 +37,8 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
       'api_key' => '',
       'api_secret' => '',
       'integrator' => '',
-      'redirect_method' => 'post',
+      'merchant_id' => '',
+      'subdomain' => 'payment'
     ] + parent::defaultConfiguration();
   }
 
@@ -65,17 +69,18 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
       '#required' => TRUE,
     ];
 
-    // A real gateway would always know which redirect method should be used,
-    // it's made configurable here for test purposes.
-    $form['redirect_method'] = [
-      '#type' => 'radios',
-      '#title' => $this->t('Redirect method'),
-      '#options' => [
-        'get' => $this->t('Redirect via GET (302 header)'),
-        'post' => $this->t('Redirect via POST (automatic)'),
-        'post_manual' => $this->t('Redirect via POST (manual)'),
-      ],
-      '#default_value' => $this->configuration['redirect_method'],
+    $form['merchant_id'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Merchant ID'),
+      '#default_value' => $this->configuration['merchant_id'],
+      '#required' => TRUE,
+    ];
+
+    $form['subdomain'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subdomain'),
+      '#default_value' => $this->configuration['subdomain'],
+      '#required' => TRUE,
     ];
 
     return $form;
@@ -91,14 +96,31 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
       $this->configuration['api_key'] = $values['api_key'];
       $this->configuration['api_secret'] = $values['api_secret'];
       $this->configuration['integrator'] = $values['integrator'];
-      $this->configuration['redirect_method'] = $values['redirect_method'];
+      $this->configuration['merchant_id'] = $values['merchant_id'];
+      $this->configuration['subdomain'] = $values['subdomain'];
     }
+  }
+
+  /**
+   * Return correct payment API endpoint
+   *
+   * @return string
+   */
+  public function getPaymentAPIEndpoint() {
+    $config = $this->getConfiguration();
+    $endpoint = 'https://world.api-ingenico.com';
+    if ($config['mode'] == 'test') {
+      $endpoint = 'https://eu.sandbox.api-ingenico.com';
+    }
+    return $endpoint;
   }
 
   /**
    * {@inheritdoc}
    */
   public function onReturn(OrderInterface $order, Request $request) {
+    parent::onReturn($order, $request);
+
     // @todo Add examples of request validation.
     // Note: Since requires_billing_information is FALSE, the order is
     // not guaranteed to have a billing profile. Confirm that
@@ -115,4 +137,29 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
     $payment->save();
   }
 
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onNotify(Request $request) {
+    parent::onNotify($request);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onCancel(OrderInterface $order, Request $request) {
+    parent::onCancel($order, $request);
+  }
+
+
+  /**
+   * Helper function to handle the transaction for both onNotify and onReturn.
+   *
+   * @param $config
+   * @param $order
+   * @param $response
+   */
+  private function handleTransaction($response) {
+  }
 }

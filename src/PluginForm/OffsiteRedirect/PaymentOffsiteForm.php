@@ -2,10 +2,22 @@
 
 namespace Drupal\commerce_ingenico_gc\PluginForm\OffsiteRedirect;
 
-use Drupal\commerce_payment\Exception\PaymentGatewayException;
-use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
-use Drupal\Core\Form\FormStateInterface;
+use Drupal;
 use Drupal\Core\Url;
+use Worldpay\BillingAddress;
+use Ingenico\Connect\Sdk\Client;
+use Ingenico\Connect\Sdk\Communicator;
+use Drupal\Core\Form\FormStateInterface;
+use Ingenico\Connect\Sdk\DefaultConnection;
+use Ingenico\Connect\Sdk\CommunicatorConfiguration;
+use Ingenico\Connect\Sdk\Domain\Definitions\Address;
+use Ingenico\Connect\Sdk\Domain\Definitions\AmountOfMoney;
+use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Order;
+use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Customer;
+use Drupal\commerce_payment\Exception\PaymentGatewayException;
+use Ingenico\Connect\Sdk\Domain\Hostedcheckout\CreateHostedCheckoutRequest;
+use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
+use Ingenico\Connect\Sdk\Domain\Hostedcheckout\Definitions\HostedCheckoutSpecificInput;
 
 class PaymentOffsiteForm extends BasePaymentOffsiteForm {
 
@@ -17,42 +29,85 @@ class PaymentOffsiteForm extends BasePaymentOffsiteForm {
 
     /** @var \Drupal\commerce_payment\Entity\PaymentInterface $payment */
     $payment = $this->entity;
-    /** @var \Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayInterface $payment_gateway_plugin */
+
+    /** @var \Drupal\commerce_ingenico_gc\Plugin\Commerce\PaymentGateway $payment_gateway_plugin */
     $payment_gateway_plugin = $payment->getPaymentGateway()->getPlugin();
-    $redirect_method = $payment_gateway_plugin->getConfiguration()['redirect_method'];
-    $remove_js = ($redirect_method == 'post_manual');
-    if (in_array($redirect_method, ['post', 'post_manual'])) {
-      $redirect_url = Url::fromRoute('commerce_ingenico_gc.redirect_post')->toString();
-      $redirect_method = 'post';
-    }
-    else {
-      // Gateways that use the GET redirect method usually perform an API call
-      // that prepares the remote payment and provides the actual url to
-      // redirect to. Any params received from that API call that need to be
-      // persisted until later payment creation can be saved in $order->data.
-      // Example: $order->setData('my_gateway', ['test' => '123']), followed
-      // by an $order->save().
-      $order = $payment->getOrder();
-      // Simulate an API call failing and throwing an exception, for test purposes.
-      // See PaymentCheckoutTest::testFailedCheckoutWithOffsiteRedirectGet().
-      if ($order->getBillingProfile()->get('address')->family_name == 'FAIL') {
-        throw new PaymentGatewayException('Could not get the redirect URL.');
-      }
-      $redirect_url = Url::fromRoute('commerce_ingenico_gc.dummy_redirect_302', [], ['absolute' => TRUE])->toString();
-    }
-    $data = [
-      'return' => $form['#return_url'],
-      'cancel' => $form['#cancel_url'],
-      'total' => $payment->getAmount()->getNumber(),
-    ];
+    $config = $payment_gateway_plugin->getConfiguration();
+    $commerce_order = $payment->getOrder();
+    $current_language = \Drupal::languageManager()->getCurrentLanguage();
+    $endpoint = $payment_gateway_plugin->getPaymentAPIEndpoint();
 
-    $form = $this->buildRedirectForm($form, $form_state, $redirect_url, $data, $redirect_method);
-    if ($remove_js) {
-      // Disable the javascript that auto-clicks the Submit button.
-      unset($form['#attached']['library']);
+    // Validate configuration
+    if (empty($config['api_key'])) {
+      throw new PaymentGatewayException('API Key not provided.');
     }
 
-    return $form;
+    if (empty($config['api_secret'])) {
+      throw new PaymentGatewayException('API Secret not provided.');
+    }
+
+    if (empty($config['integrator'])) {
+      throw new PaymentGatewayException('Integrator not provided.');
+    }
+
+    if (empty($config['merchant_id'])) {
+      throw new PaymentGatewayException('Merchant ID not provided.');
+    }
+
+    if (empty($config['subdomain'])) {
+      throw new PaymentGatewayException('Subdomain not provided.');
+    }
+
+    // Set up Ingenico SDK client
+    $communicator_configuration = new CommunicatorConfiguration(
+      $config['api_key'], $config['api_secret'], $endpoint, $config['integrator']);
+    $connection = new DefaultConnection();
+    $communicator = new Communicator($connection, $communicator_configuration);
+    $client = new Client($communicator);
+    $client->setClientMetaInfo("consumer specific JSON meta info");
+
+    // Create request
+    $request_order = new Order();
+
+    $request_order->amountOfMoney = new AmountOfMoney();
+    $request_order->amountOfMoney->amount = doubleval($commerce_order->getTotalPrice()->getNumber()) * 100;
+    $request_order->amountOfMoney->currencyCode = $commerce_order->getTotalPrice()->getCurrencyCode();
+
+    $request_order->customer = new Customer();
+    $request_order->customer->billingAddress = new Address();
+    $request_order->customer->billingAddress->countryCode = 'US'; // TODO: Capture from the billing? Why this is needed?
+    $request_order->customer->merchantCustomerId = $commerce_order->id();
+
+    $hosted_checkout_specific_input = new HostedCheckoutSpecificInput();
+    $hosted_checkout_specific_input->locale = $current_language->getId();
+    $hosted_checkout_specific_input->returnUrl = $form['#return_url'];
+
+    $request = new CreateHostedCheckoutRequest();
+    $request->hostedCheckoutSpecificInput = $hosted_checkout_specific_input;
+    $request->order = $request_order;
+
+    try {
+      $response = $client->merchant($config['merchant_id'])->hostedcheckouts()->create($request);
+      $return_mac = $response->RETURNMAC;
+      $hosted_checkout_id = $response->hostedCheckoutId;
+      $partial_url = $response->partialRedirectUrl;
+
+      // TODO: Validate response
+
+      // Persist required macs and ids
+      $commerce_order->setData('commerce_ingenico_gc', [
+        'return_mac' => $return_mac,
+        'hosted_checkout_id' => $hosted_checkout_id,
+      ]);
+      $commerce_order->save();
+
+      // Build reidrect URL
+      $redirect_url = 'https://' . implode('.', [$config['subdomain'], $partial_url]);
+
+      return $this->buildRedirectForm($form, $form_state, $redirect_url, []);
+    }
+    catch(\Ingenico\Connect\Sdk\ValidationException $e) {
+      throw new PaymentGatewayException($e->getMessage());
+    }
   }
-
 }
