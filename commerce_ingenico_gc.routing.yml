@@ -1,0 +1,16 @@
+commerce_ingenico_gc.redirect_post:
+  path: 'commerce-ingenico-gc/redirect'
+  defaults:
+    _controller: '\Drupal\commerce_ingenico_gc\Controller\RedirectController::post'
+  options:
+    no_cache: TRUE
+  requirements:
+    _access: 'TRUE'
+commerce_ingenico_gc.redirect_302:
+  path: 'commerce-ingenico-gc/redirect-302'
+  defaults:
+    _controller: '\Drupal\commerce_ingenico_gc\Controller\RedirectController::on302'
+  options:
+    no_cache: TRUE
+  requirements:
+    _access: 'TRUE'

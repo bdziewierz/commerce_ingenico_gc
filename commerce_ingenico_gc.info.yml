@@ -1,0 +1,8 @@
+name: Commerce Ingenico ePayments GlobalConnect
+type: module
+description: 'Provides payment gateway for Commerce Ingenico ePayments GlobalConnect'
+package: Commerce
+core: 8.x
+dependencies:
+  - commerce:commerce
+  - commerce:commerce_payment
