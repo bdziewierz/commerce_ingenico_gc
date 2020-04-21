@@ -228,14 +228,4 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
   public function onCancel(OrderInterface $order, Request $request) {
     parent::onCancel($order, $request);
   }
-
-  /**
-   * Helper function to handle the transaction for both onNotify and onReturn.
-   *
-   * @param $config
-   * @param $order
-   * @param $response
-   */
-  private function handleTransaction($response) {
-  }
 }
