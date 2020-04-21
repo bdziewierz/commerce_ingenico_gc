@@ -9,6 +9,16 @@ use Drupal\commerce_payment\Exception\DeclineException;
 use Drupal\commerce_payment\Exception\PaymentGatewayException;
 use Drupal\commerce_payment\Exception\InvalidResponseException;
 use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayBase;
+use Ingenico\Connect\Sdk\Client;
+use Ingenico\Connect\Sdk\Communicator;
+use Ingenico\Connect\Sdk\DefaultConnection;
+use Ingenico\Connect\Sdk\CommunicatorConfiguration;
+use Ingenico\Connect\Sdk\Domain\Definitions\Address;
+use Ingenico\Connect\Sdk\Domain\Definitions\AmountOfMoney;
+use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Order;
+use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Customer;
+use Ingenico\Connect\Sdk\Domain\Hostedcheckout\CreateHostedCheckoutRequest;
+use Ingenico\Connect\Sdk\Domain\Hostedcheckout\Definitions\HostedCheckoutSpecificInput;
 
 /**
  * Provides the Off-site Redirect payment gateway.
@@ -121,22 +131,89 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
   public function onReturn(OrderInterface $order, Request $request) {
     parent::onReturn($order, $request);
 
-    // @todo Add examples of request validation.
-    // Note: Since requires_billing_information is FALSE, the order is
-    // not guaranteed to have a billing profile. Confirm that
-    // $order->getBillingProfile() is not NULL before trying to use it.
-    $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
-    $payment = $payment_storage->create([
-      'state' => 'completed',
-      'amount' => $order->getBalance(),
-      'payment_gateway' => $this->parentEntity->id(),
-      'order_id' => $order->id(),
-      'remote_id' => $request->query->get('txn_id'),
-      'remote_state' => $request->query->get('payment_status'),
+    $return_mac = $request->get('RETURNMAC');
+    $hosted_checkout_id = $request->get('hostedCheckoutId');
+    $order_data = $order->getData('commerce_ingenico_gc', [
+      'return_mac' => null,
+      'hosted_checkout_id' => null,
     ]);
-    $payment->save();
-  }
 
+    // Validate the MAC and hosted checkout ID
+    if ($order_data['return_mac'] != $return_mac) {
+      throw new InvalidResponseException('RETURNMAC is invalid!');
+    }
+
+    if ($order_data['hosted_checkout_id'] != $hosted_checkout_id) {
+      throw new InvalidResponseException('Hosted checkout id is invalid!');
+    }
+
+    // Conduct call back to the service to validate the status of payment
+    $config = $this->getConfiguration();
+    $endpoint = $this->getPaymentAPIEndpoint();
+
+    // Validate configuration
+    if (empty($config['api_key'])) {
+      throw new PaymentGatewayException('API Key not provided.');
+    }
+
+    if (empty($config['api_secret'])) {
+      throw new PaymentGatewayException('API Secret not provided.');
+    }
+
+    if (empty($config['integrator'])) {
+      throw new PaymentGatewayException('Integrator not provided.');
+    }
+
+    if (empty($config['merchant_id'])) {
+      throw new PaymentGatewayException('Merchant ID not provided.');
+    }
+
+    if (empty($config['subdomain'])) {
+      throw new PaymentGatewayException('Subdomain not provided.');
+    }
+
+    // Set up Ingenico SDK client
+    $communicator_configuration = new CommunicatorConfiguration(
+      $config['api_key'], $config['api_secret'], $endpoint, $config['integrator']);
+    $connection = new DefaultConnection();
+    $communicator = new Communicator($connection, $communicator_configuration);
+    $client = new Client($communicator);
+
+    try {
+      $response = $client->merchant($config['merchant_id'])->hostedcheckouts()->get($hosted_checkout_id);
+
+      $status = $response->status;
+      $payment_status = $response->createdPaymentOutput->payment->status;
+      $payment_id = $response->createdPaymentOutput->payment->id;
+      $status_output = $response->createdPaymentOutput->payment->statusOutput;
+
+      if ($status != 'PAYMENT_CREATED') {
+        throw new InvalidResponseException('Payment has not completed on the hosted pages.');
+      }
+
+      if ($status_output->statusCategory != 'COMPLETED') {
+        throw new PaymentGatewayException('Payment has not been completed.');
+      }
+
+      if (!$status_output->isAuthorized) {
+        throw new PaymentGatewayException('Payment has not been authorised.');
+      }
+
+      $payment_storage = $this->entityTypeManager->getStorage('commerce_payment');
+      $payment = $payment_storage->create([
+        'state' => 'completed',
+        'amount' => $order->getBalance(),
+        'payment_gateway' => $this->parentEntity->id(),
+        'order_id' => $order->id(),
+        'remote_id' => $payment_id,
+        'remote_state' => $payment_status,
+      ]);
+      $payment->save();
+    }
+    catch(\Ingenico\Connect\Sdk\ValidationException $e) {
+      throw new PaymentGatewayException($e->getMessage());
+    }
+  }
 
   /**
    * {@inheritdoc}
@@ -151,7 +228,6 @@ class OffsiteRedirect extends OffsitePaymentGatewayBase {
   public function onCancel(OrderInterface $order, Request $request) {
     parent::onCancel($order, $request);
   }
-
 
   /**
    * Helper function to handle the transaction for both onNotify and onReturn.

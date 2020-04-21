@@ -3,20 +3,18 @@
 namespace Drupal\commerce_ingenico_gc\PluginForm\OffsiteRedirect;
 
 use Drupal;
-use Drupal\Core\Url;
-use Worldpay\BillingAddress;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\commerce_payment\Exception\PaymentGatewayException;
+use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
 use Ingenico\Connect\Sdk\Client;
 use Ingenico\Connect\Sdk\Communicator;
-use Drupal\Core\Form\FormStateInterface;
 use Ingenico\Connect\Sdk\DefaultConnection;
 use Ingenico\Connect\Sdk\CommunicatorConfiguration;
 use Ingenico\Connect\Sdk\Domain\Definitions\Address;
 use Ingenico\Connect\Sdk\Domain\Definitions\AmountOfMoney;
 use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Order;
 use Ingenico\Connect\Sdk\Domain\Payment\Definitions\Customer;
-use Drupal\commerce_payment\Exception\PaymentGatewayException;
 use Ingenico\Connect\Sdk\Domain\Hostedcheckout\CreateHostedCheckoutRequest;
-use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
 use Ingenico\Connect\Sdk\Domain\Hostedcheckout\Definitions\HostedCheckoutSpecificInput;
 
 class PaymentOffsiteForm extends BasePaymentOffsiteForm {
@@ -80,6 +78,7 @@ class PaymentOffsiteForm extends BasePaymentOffsiteForm {
 
     $hosted_checkout_specific_input = new HostedCheckoutSpecificInput();
     $hosted_checkout_specific_input->locale = $current_language->getId();
+    $hosted_checkout_specific_input->showResultPage = false;
     $hosted_checkout_specific_input->returnUrl = $form['#return_url'];
 
     $request = new CreateHostedCheckoutRequest();
@@ -101,9 +100,8 @@ class PaymentOffsiteForm extends BasePaymentOffsiteForm {
       ]);
       $commerce_order->save();
 
-      // Build reidrect URL
+      // Build redirect URL and execute redirect
       $redirect_url = 'https://' . implode('.', [$config['subdomain'], $partial_url]);
-
       return $this->buildRedirectForm($form, $form_state, $redirect_url, []);
     }
     catch(\Ingenico\Connect\Sdk\ValidationException $e) {
